@@ -1,0 +1,15 @@
+<?php
+require_once dirname(__DIR__) . '/app/bootstrap.php'; require_login(); require_role(['ADMIN','STOREKEEPER']); require_once dirname(__DIR__) . '/app/layout.php';
+if($_SERVER['REQUEST_METHOD']==='POST'){verify_csrf();run_action(function()use($pdo){
+$s=$pdo->prepare('CALL sp_receive_stock(:supplier,:staff,:medicine,:batch,:expiry,:qty,:cost,:invoice,@purchase_id)');
+$s->execute(['supplier'=>post_int('supplier_id',1),'staff'=>current_user()['staff_id'],'medicine'=>post_int('medicine_id',1),'batch'=>post_string('batch_number',80),'expiry'=>valid_date('expiry_date',true),'qty'=>post_int('quantity',1,100000000),'cost'=>post_decimal('unit_cost'),'invoice'=>post_string('invoice_number',80,false)?:null]);
+$s->closeCursor();
+},'Stock received successfully. Batch balances and audit ledger were updated.','Stock receipt failed.');redirect('receive.php');}
+$suppliers=$pdo->query('SELECT supplier_id,supplier_name FROM suppliers ORDER BY supplier_name')->fetchAll();
+$medicines=$pdo->query('SELECT medicine_id,medicine_code,medicine_name FROM medicines WHERE active=1 ORDER BY medicine_name')->fetchAll();
+page_header('Receive stock','receive'); ?>
+<div class="content-grid two-col"><section class="panel"><div class="panel-heading"><div><span class="eyebrow">GOODS RECEIPT</span><h3>Record a delivery</h3><p class="muted">The stored procedure performs the receipt as one transaction.</p></div></div>
+<?php if(!$suppliers||!$medicines): ?><div class="notice">You need at least one supplier and one active medicine before receiving stock. Add them first.</div><?php else: ?>
+<form method="post" class="stack-form"><input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>"><label>Supplier<select name="supplier_id" required><?php foreach($suppliers as $s): ?><option value="<?= (int)$s['supplier_id'] ?>"><?= e($s['supplier_name']) ?></option><?php endforeach; ?></select></label><label>Medicine<select name="medicine_id" required><?php foreach($medicines as $m): ?><option value="<?= (int)$m['medicine_id'] ?>"><?= e($m['medicine_name'].' · '.$m['medicine_code']) ?></option><?php endforeach; ?></select></label><label>Batch number<input name="batch_number" maxlength="80" required></label><label>Expiry date<input type="date" name="expiry_date" min="<?= e(date('Y-m-d',strtotime('+1 day'))) ?>" required></label><div class="form-grid"><label>Quantity received<input type="number" name="quantity" min="1" max="100000000" required></label><label>Unit cost<input type="number" name="unit_cost" min="0" step="0.01" required></label></div><label>Invoice number <span class="muted">(optional)</span><input name="invoice_number" maxlength="80"></label><button class="btn primary">Confirm stock receipt →</button></form><?php endif; ?></section>
+<aside class="panel guidance"><div class="guidance-icon">✓</div><h3>Protected receiving</h3><ul><li>Expired batches are rejected.</li><li>Duplicate batch numbers are reused only when expiry dates match.</li><li>Stock, purchase detail and movement ledger are updated together.</li><li>Any SQL/business-rule failure rolls back the transaction.</li></ul></aside></div>
+<?php page_footer(); ?>
