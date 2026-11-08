@@ -1,6 +1,20 @@
 <?php
 declare(strict_types=1);
 
+function utf8_length(string $value): int
+{
+    $count = preg_match_all('/./us', $value, $matches);
+    return $count === false ? strlen($value) : $count;
+}
+
+function utf8_substr(string $value, int $start, int $length): string
+{
+    if (preg_match_all('/./us', $value, $matches) === false) {
+        return substr($value, $start, $length);
+    }
+    return implode('', array_slice($matches[0], $start, $length));
+}
+
 function e(mixed $value): string
 {
     return htmlspecialchars((string)($value ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -35,7 +49,8 @@ function csrf_token(): string
 function verify_csrf(): void
 {
     $submitted = $_POST['_csrf'] ?? '';
-    if (!is_string($submitted) || !hash_equals(csrf_token(), $submitted)) {
+    $expected = $_SESSION['csrf_token'] ?? '';
+    if (!is_string($submitted) || !is_string($expected) || $expected === '' || !hash_equals($expected, $submitted)) {
         http_response_code(419);
         exit('Request expired or invalid. Go back, refresh the page, and try again.');
     }
@@ -51,7 +66,7 @@ function post_string(string $key, int $maxLength = 255, bool $required = true): 
     if ($required && $value === '') {
         throw new InvalidArgumentException(ucfirst(str_replace('_', ' ', $key)) . ' is required.');
     }
-    if (mb_strlen($value) > $maxLength) {
+    if (utf8_length($value) > $maxLength) {
         throw new InvalidArgumentException(ucfirst(str_replace('_', ' ', $key)) . " is too long (maximum {$maxLength} characters).");
     }
     return $value;
@@ -95,6 +110,17 @@ function valid_date(string $key, bool $futureOnly = false): string
         throw new InvalidArgumentException('Expiry date must be in the future.');
     }
     return $value;
+}
+
+/** Execute a MySQL stored procedure and consume all result sets before another query. */
+function execute_procedure(PDO $pdo, string $sql, array $parameters = []): void
+{
+    $statement = $pdo->prepare($sql);
+    $statement->execute($parameters);
+    while ($statement->nextRowset()) {
+        // Stored procedures may return status/result sets even when the UI does not display them.
+    }
+    $statement->closeCursor();
 }
 
 function run_action(callable $callback, string $success, string $fallback = 'The operation could not be completed.'): void

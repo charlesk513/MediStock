@@ -1,92 +1,137 @@
-# MediStock — Hospital Pharmacy Stock & Expiry Management
+# MediStock
 
-A responsive HTML/CSS/PHP interface for the existing MySQL database `hospital_pharmacy_db`.
-
-## What is included
-
-- Responsive pharmacy dashboard with stock, low-stock, expiry and recent movement summaries.
-- Medicine catalogue, supplier directory and patient registry.
-- Batch inventory with expiry status.
-- Stock receipt through `sp_receive_stock`.
-- FEFO dispensing through `sp_dispense_medicine`.
-- Reports for stock, expired batches, near-expiry batches, dispensing and the immutable movement ledger.
-- PDO prepared statements, server-side validation, output escaping, CSRF protection, secure session settings, role checks, password hashing and controlled exception handling.
-- The database remains the authority for integrity: foreign keys, UNIQUE/CHECK constraints, triggers, stored procedures, transactions and views.
-
-## Database compatibility
-
-This web application targets the SQL schema previously created for this project:
-
-- Database: `hospital_pharmacy_db`
-- MySQL: 8.0.16+ (InnoDB)
-- Tables: `medicine_categories`, `suppliers`, `staff_users`, `patients`, `medicines`, `medicine_batches`, `purchases`, `purchase_items`, `dispensings`, `dispensing_items`, `stock_movements`
-- Views: `vw_medicine_stock`, `vw_low_stock_medicines`, `vw_expired_batches`, `vw_near_expiry_batches`, `vw_dispensing_summary`
-- Procedures: `sp_receive_stock`, `sp_dispense_medicine`, `sp_cancel_dispensing`
-
-The PHP code does not recreate or weaken the database rules. It invokes the stock procedures so that the stock ledger and balances stay consistent.
+Hospital pharmacy stock and expiry management application built with PHP, PDO and MySQL.
 
 ## Requirements
 
-- PHP 8.1+ with `pdo_mysql`, `mbstring` and standard session support.
-- MySQL 8.0.16+.
-- Apache/Nginx or PHP's built-in development server.
+- PHP 8.1 or newer (PHP 8.2/8.3/8.4 recommended)
+- PHP extensions: `pdo_mysql`, `session`, `filter`, `json`
+- MySQL 8.0.16 or newer; MySQL 8.0.30+ recommended
+- InnoDB enabled
+- A web server whose document root points to the `public/` directory
 
-## Installation
+The application uses UTF-8 helper functions that do not require `mbstring`.
 
-1. Import the project's existing `hospital_pharmacy_stock_expiry.sql` into MySQL. It creates the database, tables, triggers, procedures, views and sample records.
-2. Extract this ZIP into your web project directory.
-3. Copy `config.example.php` to `config.php`.
-4. Edit `config.php` with the MySQL host, database user and password. The database name is already set to `hospital_pharmacy_db`.
-5. Create a first administrator from the project root:
+## Project structure
+
+```text
+MediStock/
+├── app/
+│   ├── auth.php          # Login state, account checks and role authorization
+│   ├── bootstrap.php     # Loads configuration and initializes each request
+│   ├── db.php            # Creates the PDO/MySQL connection
+│   ├── helpers.php       # Escaping, validation, CSRF, flash messages, procedures
+│   └── layout.php        # Shared navigation, header and footer
+├── database/
+│   ├── medistock_schema.sql  # Tables, indexes, constraints, triggers, procedures, views
+│   └── create_app_user.sql   # Restricted MySQL account for the PHP application
+├── public/               # Only this directory should be exposed by the web server
+│   ├── assets/            # CSS and JavaScript
+│   ├── index.php          # Dashboard
+│   ├── medicines.php      # Medicine catalogue
+│   ├── batches.php        # Batch inventory
+│   ├── suppliers.php      # Supplier directory
+│   ├── patients.php       # Patient registry
+│   ├── receive.php        # Receive stock (stored procedure)
+│   ├── dispense.php       # Dispense medicine (stored procedure)
+│   ├── reports.php        # Stock, expiry, dispensing and movement reports
+│   ├── login.php
+│   └── logout.php
+├── scripts/
+│   ├── check_environment.php
+│   └── create_admin.php
+├── config.example.php
+└── README.md
+```
+
+## Installation (fresh database)
+
+1. Extract the project to your development directory.
+2. Open MySQL Workbench or a MySQL terminal using an administrator account.
+3. Import `database/medistock_schema.sql`.
+4. Change the placeholder password in `database/create_app_user.sql`, then execute that file as the MySQL administrator.
+5. Copy `config.example.php` to `config.php` in the project root.
+6. Update the database username and password in `config.php` to match the restricted account created in step 4.
+7. From the project root, run:
+
+   ```bash
+   php scripts/check_environment.php
+   ```
+
+8. Create the first administrator:
 
    ```bash
    php scripts/create_admin.php
    ```
 
-   Choose a strong password of at least 12 characters. The script is CLI-only and stores a PHP `password_hash()` result. Do not use the SQL sample account hashes as login passwords; they are placeholders.
-6. Point your web server document root to the `public/` directory. This is important: `app/`, `config.php` and `scripts/` should not be publicly accessible.
-7. Open the application in a browser.
+9. Start the PHP development server:
 
-For a local-only development run from the project root:
+   ```bash
+   php -S 127.0.0.1:8000 -t public
+   ```
+
+10. Open `http://127.0.0.1:8000/login.php`.
+
+The web server document root must be `public/`. Do not expose the project root, `app/`, `database/`, `scripts/`, or `config.php` through the web server.
+
+## Database installation safety
+
+`medistock_schema.sql` creates the database if it does not exist and creates tables with `IF NOT EXISTS`. It replaces the project's views, stored procedures and triggers, but it does **not** drop tables or delete existing table data.
+
+Important: `CREATE TABLE IF NOT EXISTS` is not a schema migration tool. If you already have an older MediStock database, do not assume this script upgrades its existing tables. Back up that database and install into a separate empty database, or prepare and test a dedicated migration first. Never experiment on the only copy of real patient or pharmacy data.
+
+The schema seeds only the medicine categories. It does not insert fake patients, fake suppliers, demo staff accounts or placeholder password hashes. Create a real administrator using the CLI script.
+
+## Important stock rules
+
+- Stock is stored per batch, including its expiry date.
+- New batches start with zero stock. Receipts are processed by `sp_receive_stock`.
+- Dispensing is processed by `sp_dispense_medicine`, which allocates stock using FEFO (First Expiry, First Out).
+- A dispensing request that cannot be fulfilled from unexpired stock is rolled back as a whole.
+- Stock movements are append-only. Corrections are represented by compensating movements, not edits to old movements.
+- `sp_cancel_dispensing` requires an explicit choice about whether the medicine is physically returned and eligible for reuse. Pass `1` only after that has been verified. Pass `0` when no usable stock is being returned.
+- The current web interface does not expose a dispensing-cancellation screen; cancellation is available at the database procedure level and should be added to the UI only with an approved return workflow.
+- The database account used by the web application should not have general `UPDATE` or `DELETE` privileges on stock, purchase, dispensing or audit tables.
+
+## Roles
+
+- `ADMIN`: catalogue, suppliers, patients, receiving, dispensing and reports.
+- `PHARMACIST`: medicine catalogue, patients, dispensing and reports.
+- `STOREKEEPER`: medicine catalogue, suppliers, batch inventory and receiving.
+
+Authorization is checked by PHP and key stock operations are additionally validated by the database procedures and triggers.
+
+## Environment check
+
+Run:
 
 ```bash
-php -S 127.0.0.1:8000 -t public
+php scripts/check_environment.php
 ```
 
-Then open `http://127.0.0.1:8000`.
+This checks PHP's MySQL driver, the MySQL version, and the presence of all expected tables, views and stored procedures. Trigger definitions are installed by the SQL script and should be reviewed by a MySQL administrator. It does not replace functional tests of every database operation. See `TEST_STATUS.md` for exactly which checks were and were not run while preparing this package.
 
-## Suggested first-use sequence
+## Testing before real use
 
-1. Sign in with the administrator created in step 5.
-2. Add medicine categories in MySQL (the supplied SQL script seeds three categories).
-3. Add suppliers if not already seeded.
-4. Add medicines.
-5. Register patients.
-6. Receive stock against a supplier, medicine, batch and future expiry date.
-7. Dispense medicine to a registered patient.
-8. Review expiry, stock and movement reports.
+Use a separate test database and test accounts. Verify at least:
 
-## Security and integrity notes
+1. Duplicate medicine codes and patient numbers are rejected.
+2. Invalid and future patient dates of birth are rejected.
+3. Expired batches cannot be received or dispensed.
+4. Stock receipt creates a purchase, purchase item, batch balance and movement record together.
+5. FEFO dispensing consumes the earliest-expiring unexpired batches first.
+6. Insufficient stock leaves no partial dispensing or stock movement.
+7. Two concurrent dispensing requests cannot oversell a batch.
+8. Movement, purchase-item and dispensing-item history cannot be silently updated or deleted.
+9. Inactive staff accounts cannot continue using an existing browser session.
+10. Role restrictions work when a user manually enters a protected URL.
 
-- All database values from users are passed through PDO prepared statements. Dynamic SQL identifiers are not built from user input.
-- All displayed user/database content is HTML-escaped with `htmlspecialchars`.
-- Forms use per-session CSRF tokens and POST for state-changing operations.
-- Login uses `password_verify`, session ID regeneration, HTTP-only and SameSite cookies, and active-account checks.
-- Role checks are performed on the server for sensitive actions.
-- Server validation checks type, length, numeric range, date format, email format and code formats. MySQL constraints/triggers/procedures remain the final authority.
-- Database exceptions are logged server-side; users receive safe, actionable messages rather than raw SQL errors.
-- Do not expose PHP error display in production. Configure PHP logging, HTTPS, backups and least-privilege MySQL accounts.
-- Use a dedicated database account rather than `root` in production. Grant only the required SELECT/INSERT privileges and EXECUTE on the approved stock procedures. Because the current UI adds master records, grant only the relevant INSERT privileges for those tables.
-- Protect patient information under your hospital's privacy and access policies. This is an academic project starter, not a certified clinical information system.
+## Security notes
 
-## Important database note
-
-The SQL schema's sample staff records contain `REPLACE_WITH_SECURE_HASH` placeholders. They are not usable passwords. Create the real administrator with `scripts/create_admin.php`; deactivate or remove any placeholder sample staff accounts before a real deployment.
-
-## Troubleshooting
-
-- **Database unavailable:** confirm MySQL is running, `config.php` credentials are correct, and the schema was imported.
-- **Unknown procedure/view/table:** import the matching SQL schema completely into `hospital_pharmacy_db`.
-- **Blank/500 page:** check the PHP/Apache error log; ensure `pdo_mysql` and `mbstring` are enabled.
-- **Permission denied:** verify the logged-in user's role and the database grants.
-- **Duplicate value:** medicine codes, supplier names/emails, patient numbers and supplier invoice numbers have uniqueness rules.
+- Keep `config.php` private; it is excluded by `.gitignore`.
+- Change any database password that has ever been shared or committed.
+- Use HTTPS in production.
+- Use a dedicated MySQL account rather than `root` for the web application.
+- Back up the database regularly and test restoration.
+- Restrict access to patient information according to the hospital's policies and applicable privacy law.
+- The application is a project baseline, not a certified clinical or pharmacy system. Complete operational, security, backup and regulatory reviews before real patient use.

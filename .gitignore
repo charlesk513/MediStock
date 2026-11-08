@@ -1,0 +1,29 @@
+# Database files and backups
+database/
+db/
+*.sql
+*.sql.gz
+*.dump
+*.sqlite
+*.sqlite3
+
+# Environment and database credentials
+.env
+.env.*
+!.env.example
+config.php
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+/vendor/
