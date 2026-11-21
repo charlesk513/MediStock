@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 /*
@@ -9,7 +10,7 @@ return [
     'db' => [
         'host' => '127.0.0.1',
         'port' => 3306,
-        'name' => 'hospital_pharmacy_db_v2',
+        'name' => 'hospital_pharmacy_db',
         'user' => 'medistock_app',
         'password' => 'CHANGE_THIS_TO_THE_PASSWORD_SET_IN_CREATE_APP_USER_SQL',
         'charset' => 'utf8mb4',
