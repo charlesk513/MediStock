@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 function utf8_length(string $value): int
